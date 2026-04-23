@@ -2,6 +2,7 @@ name: Get NuGet PAT from Key Vault
 description: >
   Fetch the Azure DevOps NuGet feed PAT from Azure Key Vault.
   REQUIRES: azure/login must be called by the caller before this action runs.
+  The SP must have Key Vault Secrets User + Key Vault Contributor on the vault.
 
 inputs:
   key-vault:
@@ -20,6 +21,23 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Allow runner IP in Key Vault firewall
+      id: allow-ip
+      shell: bash
+      run: |
+        MYIP=$(curl -s https://api.ipify.org)
+        RULENAME="gha-$(date +%Y%m%d-%H%M%S)-$$"
+        az keyvault network-rule add \
+          --name "$KEY_VAULT" \
+          --ip-address "$MYIP" \
+          --no-wait 2>/dev/null || true
+        # Brief pause for rule propagation
+        sleep 10
+        echo "rule-ip=$MYIP" >> "$GITHUB_OUTPUT"
+        echo "rule-name=$RULENAME" >> "$GITHUB_OUTPUT"
+      env:
+        KEY_VAULT: ${{ inputs.key-vault }}
+
     - name: Fetch PAT from Key Vault
       id: fetch
       shell: bash
@@ -37,3 +55,17 @@ runs:
       env:
         KEY_VAULT: ${{ inputs.key-vault }}
         SECRET_NAME: ${{ inputs.secret-name }}
+
+    - name: Remove runner IP from Key Vault firewall
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "$RUNNER_IP" ]; then
+          az keyvault network-rule remove \
+            --name "$KEY_VAULT" \
+            --ip-address "$RUNNER_IP" \
+            --no-wait 2>/dev/null || true
+        fi
+      env:
+        KEY_VAULT: ${{ inputs.key-vault }}
+        RUNNER_IP: ${{ steps.allow-ip.outputs.rule-ip }}
