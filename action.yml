@@ -1,0 +1,39 @@
+name: Get NuGet PAT from Key Vault
+description: >
+  Fetch the Azure DevOps NuGet feed PAT from Azure Key Vault.
+  REQUIRES: azure/login must be called by the caller before this action runs.
+
+inputs:
+  key-vault:
+    description: Azure Key Vault name (e.g. tm-kv-prod-eus2)
+    required: true
+  secret-name:
+    description: Secret name in Key Vault
+    required: false
+    default: AzureDevOps--PAT
+
+outputs:
+  value:
+    description: The PAT value (masked in logs)
+    value: ${{ steps.fetch.outputs.value }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch PAT from Key Vault
+      id: fetch
+      shell: bash
+      run: |
+        pat=$(az keyvault secret show \
+          --vault-name "$KEY_VAULT" \
+          --name "$SECRET_NAME" \
+          --query value -o tsv)
+        if [ -z "$pat" ]; then
+          echo "::error::Failed to retrieve secret '$SECRET_NAME' from Key Vault '$KEY_VAULT'"
+          exit 1
+        fi
+        echo "::add-mask::$pat"
+        echo "value=$pat" >> "$GITHUB_OUTPUT"
+      env:
+        KEY_VAULT: ${{ inputs.key-vault }}
+        SECRET_NAME: ${{ inputs.secret-name }}

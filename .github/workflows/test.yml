@@ -1,0 +1,41 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Verify action fetches PAT
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: ./
+        id: pat
+        with:
+          key-vault: tm-kv-prod-eus2
+
+      - name: Verify PAT authenticates against NuGet feed
+        shell: bash
+        run: |
+          http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -u "docker:${{ steps.pat.outputs.value }}" \
+            "https://pkgs.dev.azure.com/jasonberkes/TaskMaster/_packaging/tm-packages/nuget/v3/index.json")
+          if [ "$http_code" = "200" ]; then
+            echo "PASS: NuGet feed returned HTTP 200"
+          else
+            echo "FAIL: NuGet feed returned HTTP $http_code"
+            exit 1
+          fi
